@@ -137,12 +137,18 @@ export interface RiskGraphNode {
   category: string;
   severity: string;
   details: string;
+  timestamp?: string | null;
+  confidence?: number | null;
+  state?: string | null; // "Observed" | "Potential consequence" | "Requires investigation"
+  source_event_id?: string | null;
 }
 
 export interface RiskGraphEdge {
   source: string;
   target: string;
   label: string;
+  confidence?: number | null;
+  state?: string | null;
 }
 
 export interface RiskPathGraph {
@@ -219,4 +225,134 @@ export interface WhatIfResult {
   hardening_guidance: string[];
   config_snippet: string;
   disclaimer: string;
+}
+
+// ============================================================
+// Temporal Security Twin
+// ============================================================
+
+export interface VPNStateSnapshot {
+  analysis_id: string;
+  tunnel_id: string;
+  sequence_index: number;
+  label: string;
+  timestamp: string;
+  dataset_type: string;
+  filename: string;
+  ike_version?: string | null;
+  ike_version_status: string;
+  encryption?: string | null;
+  encryption_status: string;
+  dh_group?: string | null;
+  dh_group_name?: string | null;
+  pfs?: boolean | null;
+  replay_protection?: boolean | null;
+  sa_lifetime?: number | null;
+  overall_score: number;
+  posture_grade: string;
+  findings_count: number;
+  critical_findings_count: number;
+  anomaly_count: number;
+  has_drift: boolean;
+  drift_severity: string;
+}
+
+export interface SecurityEvent {
+  event_id: string;
+  tunnel_id: string;
+  analysis_id: string;
+  timestamp: string;
+  event_type: string;
+  severity: string;
+  source: string;
+  previous_value?: string | null;
+  current_value?: string | null;
+  evidence: string;
+  affected_component: string;
+  confidence: number;
+}
+
+export interface CorrelatedSequence {
+  sequence_id: string;
+  label: string;
+  interpretation: string;
+  events: SecurityEvent[];
+}
+
+export interface SecurityTimeline {
+  tunnel_id: string;
+  snapshots: VPNStateSnapshot[];
+  events: SecurityEvent[];
+  correlated_sequences: CorrelatedSequence[];
+  is_simulated: boolean;
+  simulation_label?: string | null;
+}
+
+export interface ExposureClock {
+  tunnel_id: string;
+  security_state: string; // HEALTHY | DEGRADED | UNKNOWN
+  degradation_started_at?: string | null;
+  reference_time: string;
+  duration_seconds: number;
+  duration_human: string;
+  affected_sas: number;
+  security_transitions: number;
+  risk_score_start?: number | null;
+  risk_score_current: number;
+  disclaimer: string;
+}
+
+export interface RiskForecast {
+  tunnel_id: string;
+  current_state: string;
+  trend: string; // ESCALATING | IMPROVING | STABLE | INSUFFICIENT_DATA
+  forecast_window: string;
+  confidence: number;
+  risk_factors: string[];
+  supporting_events: string[];
+  disclaimer: string;
+}
+
+export interface RemediationChange {
+  parameter: string;
+  from_value?: string | null;
+  to_value?: string | null;
+}
+
+export interface RemediationPlan {
+  plan_id: string;
+  label: string;
+  problem_summary: string;
+  changes: RemediationChange[];
+  whatif_request: WhatIfRequest;
+  whatif_result: WhatIfResult;
+  findings_resolved: number;
+  findings_remaining: number;
+  graph_nodes_removed: number;
+  graph_edges_removed: number;
+}
+
+export interface RemediationComparison {
+  analysis_id: string;
+  current_score: number;
+  current_grade: string;
+  plans: RemediationPlan[];
+}
+
+export interface ReplayFrame {
+  index: number;
+  label: string;
+  timestamp: string;
+  snapshot: VPNStateSnapshot;
+  events_at_this_point: SecurityEvent[];
+  exposure: ExposureClock;
+  forecast: RiskForecast;
+  risk_graph: RiskPathGraph;
+}
+
+export interface IncidentReplay {
+  tunnel_id: string;
+  frames: ReplayFrame[];
+  is_simulated: boolean;
+  simulation_label?: string | null;
 }

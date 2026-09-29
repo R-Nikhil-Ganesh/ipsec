@@ -5,9 +5,9 @@ Conforms to Section 25 (API Design) and Section 27/28 (Demo Lab)
 import os
 import shutil
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, UploadFile, File, HTTPException, Response, Query
+from fastapi import APIRouter, UploadFile, File, HTTPException, Response, Query, Body
 from fastapi.responses import HTMLResponse
 
 from app.models.schemas import (
@@ -24,6 +24,14 @@ from app.models.schemas import (
     WhatIfResult,
     BaselineConfig,
 )
+from app.models.temporal_schemas import (
+    SecurityTimeline,
+    ExposureClock,
+    RiskForecast,
+    RemediationComparison,
+    IncidentReplay,
+    ReplayFrame,
+)
 from app.analyzers.pcap_analyzer import PCAPAnalyzer
 from app.security.baseline import get_current_baseline, update_baseline
 from app.security.rules_engine import SecurityRulesEngine
@@ -35,12 +43,26 @@ from app.security.whatif_simulator import WhatIfSimulator
 from app.ml.traffic_classifier import EncryptedTrafficClassifier
 from app.ml.anomaly_detector import AnomalyDetector
 from app.reports.report_generator import ReportGenerator
+from app.temporal.state_tracker import (
+    assign_tunnel,
+    get_tunnel_id_for_analysis,
+    get_tunnel_timeline_snapshots,
+    get_events_for_tunnel,
+    refresh_tunnel_events,
+)
+from app.temporal.event_correlator import correlate_sequences, build_temporal_graph
+from app.temporal.exposure_engine import compute_exposure_clock
+from app.temporal.risk_forecaster import forecast as forecast_risk
+from app.remediation.remediation_planner import build_remediation_plans
+from app.remediation.remediation_ranker import rank_plans
 from app.database.db import (
     save_analysis,
     get_analysis,
     list_analyses,
     save_baseline_fingerprint,
     get_latest_baseline_fingerprint,
+    save_remediation_simulation,
+    delete_tunnel_history,
 )
 
 router = APIRouter()
@@ -53,7 +75,13 @@ traffic_classifier = EncryptedTrafficClassifier()
 anomaly_detector = AnomalyDetector()
 
 
-def _run_full_analysis(file_path: str, filename: str, dataset_type: str = "PCAP Upload") -> AnalysisDetailResponse:
+def _run_full_analysis(
+    file_path: str,
+    filename: str,
+    dataset_type: str = "PCAP Upload",
+    tunnel_id_override: Optional[str] = None,
+    override_timestamp: Optional[str] = None,
+) -> AnalysisDetailResponse:
     analyzer = PCAPAnalyzer(file_path)
     analysis_res = analyzer.analyze()
 
@@ -119,7 +147,7 @@ def _run_full_analysis(file_path: str, filename: str, dataset_type: str = "PCAP 
     risk_graph_res = RiskGraphBuilder.build_graph(fingerprint, findings)
 
     analysis_id = str(uuid.uuid4())[:8]
-    now_iso = datetime.utcnow().isoformat()
+    now_iso = override_timestamp or datetime.utcnow().isoformat()
 
     detail = AnalysisDetailResponse(
         id=analysis_id,
@@ -144,6 +172,11 @@ def _run_full_analysis(file_path: str, filename: str, dataset_type: str = "PCAP 
     # If this was a strong baseline run, save it as a candidate baseline fingerprint for drift comparisons
     if risk_score.overall_score >= 90:
         save_baseline_fingerprint(analysis_id, f"Baseline-{filename}", fingerprint.model_dump())
+
+    # Temporal Security Twin: group this analysis under a tunnel identity and
+    # recompute the tunnel's security-event history from its snapshot series.
+    tunnel_id = assign_tunnel(analysis_id, fingerprint, tunnel_id_override)
+    refresh_tunnel_events(tunnel_id)
 
     return detail
 
@@ -252,6 +285,157 @@ def simulate_hardening(req: WhatIfRequest, analysis_id: Optional[str] = Query(No
     return res
 
 
+# ==========================================
+# TEMPORAL SECURITY TWIN ENDPOINTS
+# ==========================================
+
+def _resolve_tunnel(analysis_id: str) -> str:
+    tunnel_id = get_tunnel_id_for_analysis(analysis_id)
+    if not tunnel_id:
+        raise HTTPException(status_code=404, detail="Analysis not found or not linked to a tunnel history.")
+    return tunnel_id
+
+
+@router.get("/analysis/{analysis_id}/timeline", response_model=SecurityTimeline)
+def get_timeline_endpoint(analysis_id: str):
+    """Full historical state series + correlated security events for this tunnel."""
+    tunnel_id = _resolve_tunnel(analysis_id)
+    snapshots = get_tunnel_timeline_snapshots(tunnel_id)
+    events = get_events_for_tunnel(tunnel_id)
+    sequences = correlate_sequences(events)
+    is_simulated = any(s.dataset_type == "Controlled laboratory dataset" for s in snapshots)
+    return SecurityTimeline(
+        tunnel_id=tunnel_id,
+        snapshots=snapshots,
+        events=events,
+        correlated_sequences=sequences,
+        is_simulated=is_simulated,
+        simulation_label="CONTROLLED LABORATORY SIMULATION" if is_simulated else None,
+    )
+
+
+@router.get("/analysis/{analysis_id}/exposure", response_model=ExposureClock)
+def get_exposure_endpoint(analysis_id: str):
+    """How long the tunnel has remained in a detected degraded state, if any."""
+    tunnel_id = _resolve_tunnel(analysis_id)
+    snapshots = get_tunnel_timeline_snapshots(tunnel_id)
+    events = get_events_for_tunnel(tunnel_id)
+    return compute_exposure_clock(tunnel_id, snapshots, events)
+
+
+@router.get("/analysis/{analysis_id}/forecast", response_model=RiskForecast)
+def get_forecast_endpoint(analysis_id: str):
+    """Explainable, rule-based projection of the tunnel's risk trajectory."""
+    tunnel_id = _resolve_tunnel(analysis_id)
+    snapshots = get_tunnel_timeline_snapshots(tunnel_id)
+    events = get_events_for_tunnel(tunnel_id)
+    return forecast_risk(tunnel_id, snapshots, events)
+
+
+@router.get("/analysis/{analysis_id}/temporal-graph", response_model=RiskPathGraph)
+def get_temporal_graph_endpoint(analysis_id: str):
+    """Time-ordered chain of security events, extending the static per-analysis risk graph."""
+    tunnel_id = _resolve_tunnel(analysis_id)
+    snapshots = get_tunnel_timeline_snapshots(tunnel_id)
+    events = get_events_for_tunnel(tunnel_id)
+    return build_temporal_graph(tunnel_id, snapshots, events)
+
+
+@router.get("/analysis/{analysis_id}/remediation-plans", response_model=RemediationComparison)
+def get_remediation_plans_endpoint(analysis_id: str):
+    """Automated hardening plans (A/B/C), each scored via the existing What-If simulator."""
+    data = get_analysis(analysis_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Analysis not found.")
+
+    current_fp = VPNFingerprint(**data["fingerprint"])
+    current_findings = [SecurityFinding(**f) for f in data["findings"]]
+    current_graph = RiskPathGraph(**data["risk_graph"])
+
+    plans = rank_plans(build_remediation_plans(current_fp, current_findings, current_graph))
+    return RemediationComparison(
+        analysis_id=analysis_id,
+        current_score=data["risk_score"]["overall_score"],
+        current_grade=data["risk_score"]["posture_grade"],
+        plans=plans,
+    )
+
+
+@router.post("/analysis/{analysis_id}/remediation/simulate", response_model=WhatIfResult)
+def simulate_remediation_endpoint(
+    analysis_id: str,
+    plan_id: Optional[str] = Query(None, description="Apply a plan generated by /remediation-plans"),
+    req: Optional[WhatIfRequest] = Body(None, description="Or supply a custom hardening request directly"),
+):
+    """Applies either a named remediation plan or a custom WhatIfRequest and logs the result."""
+    data = get_analysis(analysis_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Analysis not found.")
+
+    current_fp = VPNFingerprint(**data["fingerprint"])
+
+    if plan_id:
+        current_findings = [SecurityFinding(**f) for f in data["findings"]]
+        current_graph = RiskPathGraph(**data["risk_graph"])
+        plans = build_remediation_plans(current_fp, current_findings, current_graph)
+        plan = next((p for p in plans if p.plan_id == plan_id), None)
+        if not plan:
+            raise HTTPException(status_code=404, detail=f"Remediation plan '{plan_id}' not found.")
+        result = plan.whatif_result
+        request_payload = plan.whatif_request.model_dump()
+    elif req is not None:
+        result = WhatIfSimulator.simulate(current_fp, req)
+        request_payload = req.model_dump()
+    else:
+        raise HTTPException(status_code=400, detail="Provide either a 'plan_id' query param or a WhatIfRequest body.")
+
+    save_remediation_simulation(
+        sim_id=uuid.uuid4().hex[:10],
+        analysis_id=analysis_id,
+        plan_id=plan_id or "custom",
+        request_dict=request_payload,
+        result_dict=result.model_dump(),
+    )
+    return result
+
+
+@router.post("/analysis/{analysis_id}/replay", response_model=IncidentReplay)
+def replay_incident_endpoint(analysis_id: str):
+    """
+    Incident Replay: steps through the tunnel's historical snapshots one at a time,
+    recomputing exposure/forecast/temporal-graph as of each point so the frontend can
+    animate the security evolution from T0 through the present.
+    """
+    tunnel_id = _resolve_tunnel(analysis_id)
+    snapshots = get_tunnel_timeline_snapshots(tunnel_id)
+    all_events = get_events_for_tunnel(tunnel_id)
+
+    frames: List[ReplayFrame] = []
+    for i, snap in enumerate(snapshots):
+        partial_snapshots = snapshots[: i + 1]
+        partial_ids = {s.analysis_id for s in partial_snapshots}
+        partial_events = [e for e in all_events if e.analysis_id in partial_ids]
+
+        frames.append(ReplayFrame(
+            index=i,
+            label=snap.label,
+            timestamp=snap.timestamp,
+            snapshot=snap,
+            events_at_this_point=[e for e in partial_events if e.analysis_id == snap.analysis_id],
+            exposure=compute_exposure_clock(tunnel_id, partial_snapshots, partial_events),
+            forecast=forecast_risk(tunnel_id, partial_snapshots, partial_events),
+            risk_graph=build_temporal_graph(tunnel_id, partial_snapshots, partial_events),
+        ))
+
+    is_simulated = any(s.dataset_type == "Controlled laboratory dataset" for s in snapshots)
+    return IncidentReplay(
+        tunnel_id=tunnel_id,
+        frames=frames,
+        is_simulated=is_simulated,
+        simulation_label="CONTROLLED LABORATORY SIMULATION" if is_simulated else None,
+    )
+
+
 @router.get("/reports/{analysis_id}/executive")
 def get_executive_report(analysis_id: str):
     data = get_analysis(analysis_id)
@@ -332,8 +516,50 @@ DEMO_SAMPLES = [
         "pcap": "legacy_vpn.pcap",
         "tag": "Critical Breach Risk",
         "description": "Broken 56-bit single-DES encryption and 768-bit DH Group 1 key exchange over deprecated IKEv1."
+    },
+    {
+        "id": "temporal-evolution",
+        "name": "Security Evolution: Silent Escalation",
+        "pcap": "(deterministic 5-stage synthetic sequence)",
+        "tag": "CONTROLLED LABORATORY SIMULATION",
+        "description": "A hardened tunnel silently regresses over time: cipher downgrade, key-exchange regression, PFS loss, and a renegotiation storm. Open the Security Evolution tab afterward to see the timeline, exposure clock, forecast, and remediation plans."
     }
 ]
+
+# Fixed tunnel identity for the temporal demo scenario so repeated loads replace,
+# rather than duplicate, its snapshot history.
+TEMPORAL_DEMO_TUNNEL_ID = "tun-demo-temporal-evolution"
+
+# (pcap file, hour offset from "now") — reuses the same 5 pre-generated lab pcaps
+# already used by the single-snapshot demos above, just replayed as one time series.
+TEMPORAL_DEMO_STAGES = [
+    ("strong_vpn.pcap", -4),
+    ("config_drift_vpn.pcap", -3),
+    ("weak_crypto_vpn.pcap", -2),
+    ("anomalous_vpn.pcap", -1),
+    ("legacy_vpn.pcap", 0),
+]
+
+
+def _run_temporal_demo_sequence() -> AnalysisDetailResponse:
+    # Idempotent: reloading this demo always yields exactly one fresh 5-stage history,
+    # so the scenario stays reproducible across repeated demo runs.
+    delete_tunnel_history(TEMPORAL_DEMO_TUNNEL_ID)
+    base_time = datetime.utcnow()
+    last_detail: Optional[AnalysisDetailResponse] = None
+    for pcap_name, hour_offset in TEMPORAL_DEMO_STAGES:
+        pcap_path = os.path.join(SAMPLE_DIR, pcap_name)
+        if not os.path.exists(pcap_path):
+            raise HTTPException(status_code=500, detail=f"PCAP file {pcap_name} missing from lab directory.")
+        timestamp = (base_time + timedelta(hours=hour_offset)).isoformat()
+        last_detail = _run_full_analysis(
+            pcap_path,
+            pcap_name,
+            dataset_type="Controlled laboratory dataset",
+            tunnel_id_override=TEMPORAL_DEMO_TUNNEL_ID,
+            override_timestamp=timestamp,
+        )
+    return last_detail
 
 
 @router.get("/demo/samples")
@@ -346,6 +572,9 @@ def load_demo_sample(sample_id: str):
     """
     Instantly runs and returns full analysis on one of the pre-packaged lab datasets.
     """
+    if sample_id == "temporal-evolution":
+        return _run_temporal_demo_sequence()
+
     target = next((s for s in DEMO_SAMPLES if s["id"] == sample_id), None)
     if not target:
         raise HTTPException(status_code=404, detail=f"Demo sample '{sample_id}' not found.")

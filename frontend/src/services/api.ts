@@ -3,6 +3,12 @@ import {
   DemoSample,
   WhatIfRequest,
   WhatIfResult,
+  SecurityTimeline,
+  ExposureClock,
+  RiskForecast,
+  RiskPathGraph,
+  RemediationComparison,
+  IncidentReplay,
 } from "../types";
 
 const API_BASE = "/api";
@@ -79,6 +85,55 @@ export async function simulateHardening(
     throw new Error("Simulation failed");
   }
 
+  return res.json();
+}
+
+// ============================================================
+// Temporal Security Twin
+// ============================================================
+
+export async function getTimeline(analysisId: string): Promise<SecurityTimeline> {
+  const res = await fetch(`${API_BASE}/analysis/${analysisId}/timeline`);
+  if (!res.ok) throw new Error("Failed to fetch security timeline");
+  return res.json();
+}
+
+export async function getExposureClock(analysisId: string): Promise<ExposureClock> {
+  const res = await fetch(`${API_BASE}/analysis/${analysisId}/exposure`);
+  if (!res.ok) throw new Error("Failed to fetch exposure clock");
+  return res.json();
+}
+
+export async function getRiskForecast(analysisId: string): Promise<RiskForecast> {
+  const res = await fetch(`${API_BASE}/analysis/${analysisId}/forecast`);
+  if (!res.ok) throw new Error("Failed to fetch risk forecast");
+  return res.json();
+}
+
+export async function getTemporalGraph(analysisId: string): Promise<RiskPathGraph> {
+  const res = await fetch(`${API_BASE}/analysis/${analysisId}/temporal-graph`);
+  if (!res.ok) throw new Error("Failed to fetch temporal risk graph");
+  return res.json();
+}
+
+export async function getRemediationPlans(analysisId: string): Promise<RemediationComparison> {
+  const res = await fetch(`${API_BASE}/analysis/${analysisId}/remediation-plans`);
+  if (!res.ok) throw new Error("Failed to fetch remediation plans");
+  return res.json();
+}
+
+export async function simulateRemediationPlan(analysisId: string, planId: string): Promise<WhatIfResult> {
+  const res = await fetch(
+    `${API_BASE}/analysis/${analysisId}/remediation/simulate?plan_id=${encodeURIComponent(planId)}`,
+    { method: "POST" }
+  );
+  if (!res.ok) throw new Error("Failed to simulate remediation plan");
+  return res.json();
+}
+
+export async function replayIncident(analysisId: string): Promise<IncidentReplay> {
+  const res = await fetch(`${API_BASE}/analysis/${analysisId}/replay`, { method: "POST" });
+  if (!res.ok) throw new Error("Failed to build incident replay");
   return res.json();
 }
 

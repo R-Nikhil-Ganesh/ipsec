@@ -135,12 +135,20 @@ class RiskGraphNode(BaseModel):
     category: str
     severity: str
     details: str
+    # Optional temporal metadata (populated only by the Temporal Security Twin's
+    # /temporal-graph and /replay endpoints; ordinary per-analysis graphs leave these None).
+    timestamp: Optional[str] = None
+    confidence: Optional[float] = None
+    state: Optional[str] = None  # "Observed" | "Potential consequence" | "Requires investigation"
+    source_event_id: Optional[str] = None
 
 
 class RiskGraphEdge(BaseModel):
     source: str
     target: str
     label: str
+    confidence: Optional[float] = None
+    state: Optional[str] = None
 
 
 class RiskPathGraph(BaseModel):

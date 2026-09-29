@@ -12,6 +12,7 @@ import {
   AlertCircle,
   EyeOff,
   Info,
+  History,
 } from "lucide-react";
 import { AnalysisDetailResponse, DemoSample } from "./types";
 import {
@@ -34,8 +35,13 @@ import { MetadataPrivacyView } from "./components/MetadataPrivacyView";
 import { DriftView } from "./components/DriftView";
 import { TrafficAnalyticsCharts } from "./components/TrafficAnalyticsCharts";
 import { ReportsModal } from "./components/ReportsModal";
+import { SecurityTimeline } from "./components/SecurityTimeline";
+import { ExposureClock } from "./components/ExposureClock";
+import { RiskForecastView } from "./components/RiskForecastView";
+import { RemediationPlanner } from "./components/RemediationPlanner";
+import { IncidentReplay } from "./components/IncidentReplay";
 
-type TabId = "overview" | "findings" | "graph" | "whatif" | "traffic" | "drift";
+type TabId = "overview" | "findings" | "graph" | "whatif" | "traffic" | "drift" | "evolution";
 
 interface TabConfig {
   id: TabId;
@@ -93,6 +99,14 @@ const TAB_CONFIG: TabConfig[] = [
     icon: GitCompare,
     description:
       "Compares the current configuration against an established baseline to catch silent regressions — settings that changed without anyone noticing.",
+  },
+  {
+    id: "evolution",
+    step: 7,
+    label: "Security Evolution",
+    icon: History,
+    description:
+      "The Temporal Security Twin: tracks how this tunnel's posture has changed across every observed snapshot, how long it has stayed degraded, where its risk trajectory is heading, and which remediation plan would fix it fastest.",
   },
 ];
 
@@ -300,6 +314,19 @@ export const App: React.FC = () => {
             {activeTab === "drift" && (
               <div className="space-y-6 animate-in fade-in duration-200">
                 <DriftView drift={analysis.drift} />
+              </div>
+            )}
+
+            {/* TAB 7: Security Evolution — Temporal Security Twin */}
+            {activeTab === "evolution" && (
+              <div className="space-y-6 animate-in fade-in duration-200">
+                <SecurityTimeline analysisId={analysis.id} />
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <ExposureClock analysisId={analysis.id} />
+                  <RiskForecastView analysisId={analysis.id} />
+                </div>
+                <RemediationPlanner analysisId={analysis.id} />
+                <IncidentReplay analysisId={analysis.id} />
               </div>
             )}
           </>

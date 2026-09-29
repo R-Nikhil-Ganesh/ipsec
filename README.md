@@ -29,6 +29,13 @@ flowchart TD
     F & G --> M["What-If Hardening Simulator<br/>(Real-Time Score Recalculation & Patch Generation)"]
     K & L & J & M --> N["Interactive Cybersecurity SOC Dashboard"]
     N --> O["Executive (CISO) & Technical Reports (HTML & PDF)"]
+    F -.-> P["Historical State Store<br/>(analyses grouped by tunnel_id)"]
+    P --> Q["Event Correlation & Exposure Clock<br/>(Temporal Security Twin)"]
+    Q --> R["Explainable Risk Forecaster"]
+    R --> S["Temporal Attack/Risk Graph"]
+    S --> T["Automated Remediation Planner<br/>(reuses What-If Simulator)"]
+    T -.-> M
+    Q & R & S & T --> N
 ```
 
 ---
@@ -94,6 +101,22 @@ flowchart TD
 - **Executive Report (HTML & PDF)**: Tailored for CISOs and management with risk ratings, business impact, and strategic priorities.
 - **Technical Report (HTML & PDF)**: Full audit trail for SOC engineers including transform IDs, packet counters, sequence analysis, and strongSwan patches.
 
+### 10. Temporal Security Twin (Security Evolution Tab)
+
+Every earlier feature above answers *"what is this tunnel's security posture right now?"*. The Temporal Security Twin extends the platform to answer a second question:
+
+> **How is this tunnel's security posture changing over time, what's driving that change, and which remediation stops it fastest?**
+
+It does this **without duplicating any existing logic** — it reuses the same `analyses` table (grouped by a stable `tunnel_id` derived from peer IPs), the same `RiskScorer` / `DriftDetector` / `RiskGraphBuilder`, and the same `WhatIfSimulator` that already power the rest of the app. Nothing here is a second scoring engine.
+
+- **State Tracking** (`app/temporal/state_tracker.py`): every analysis of the "same" tunnel (same initiator/responder IPs) is grouped under one `tunnel_id`. Each analysis becomes a `VPNStateSnapshot` — a point-in-time read of the fingerprint, risk score, drift, and anomaly state already computed for it.
+- **Event Correlation** (`app/temporal/event_correlator.py`): diffs consecutive snapshots into typed `SecurityEvent`s (`CRYPTO_DOWNGRADE`, `DH_DOWNGRADE`, `PFS_DISABLED`, `IKE_VERSION_CHANGE`, `SA_CHURN`, `SEQUENCE_ANOMALY`, `REPLAY_ANOMALY`, `RISK_SCORE_CHANGE`, `BASELINE_VIOLATION`), then groups events that occur close together into a `CorrelatedSequence`. It never asserts an attack occurred — sequences are always labeled as requiring investigation, not as proof of compromise.
+- **Security Exposure Clock** (`app/temporal/exposure_engine.py`): once a tunnel's posture crosses into a degraded state (score < 70, active drift, or a Critical finding), the clock tracks how long it has stayed there, how many SAs are affected, and how many state transitions have occurred — with an explicit disclaimer that duration alone does not prove compromise.
+- **Explainable Risk Forecaster** (`app/temporal/risk_forecaster.py`): a deterministic, rule-based trend classifier (`ESCALATING` / `IMPROVING` / `STABLE` / `INSUFFICIENT_DATA`) over the tunnel's score history — no opaque ML model. Every forecast lists the exact observed factors (e.g. "Repeated cryptographic downgrade", "PFS regression") and the specific event IDs behind them.
+- **Temporal Attack/Risk Graph** (extends `RiskGraphBuilder`'s node/edge schema with optional `timestamp`, `confidence`, and `state` fields): chains the tunnel's security events into a time-ordered path (`Configuration Drift → Crypto Downgrade → PFS Disabled → ... → Security Exposure Escalation`), with each node tagged `Observed`, `Potential consequence`, or `Requires investigation`.
+- **Automated Remediation Planner** (`app/remediation/`): generates three ranked hardening plans (cipher-only, cipher+DH, full baseline hardening) by constructing `WhatIfRequest`s from the current security baseline and running them straight through the existing `WhatIfSimulator` — so the projected scores, resolved findings, and generated strongSwan patches are identical to what the What-If tab would show.
+- **Incident Replay**: steps through a tunnel's full snapshot history frame-by-frame (`▶ Replay Security Evolution`), recomputing the exposure clock, forecast, and temporal graph as of each point in time.
+
 ---
 
 ## 🗂️ Project Architecture
@@ -124,8 +147,16 @@ d:\ipsec/
 │   │   │   ├── drift_detector.py    # Configuration drift diff engine
 │   │   │   ├── whatif_simulator.py  # Hardening simulator & patch generator
 │   │   │   └── privacy_analyzer.py  # Encrypted metadata side-channel scorer
+│   │   ├── temporal/                 # Temporal Security Twin
+│   │   │   ├── state_tracker.py     # Tunnel identity & historical snapshots
+│   │   │   ├── event_correlator.py  # Event diffing, correlation, temporal graph
+│   │   │   ├── exposure_engine.py   # Security Exposure Clock
+│   │   │   └── risk_forecaster.py   # Explainable rule-based risk forecast
+│   │   ├── remediation/
+│   │   │   ├── remediation_planner.py# Builds plans via the existing WhatIfSimulator
+│   │   │   └── remediation_ranker.py # Ranks plans by projected score
 │   │   ├── database/
-│   │   │   └── db.py                # SQLite persistence
+│   │   │   └── db.py                # SQLite persistence (+ tunnel/event tables)
 │   │   ├── reports/
 │   │   │   └── report_generator.py  # HTML & ReportLab PDF generators
 │   │   └── utils/
@@ -151,7 +182,12 @@ d:\ipsec/
 │   │   │   ├── MetadataPrivacyView.tsx
 │   │   │   ├── DriftView.tsx
 │   │   │   ├── TrafficAnalyticsCharts.tsx
-│   │   │   └── ReportsModal.tsx
+│   │   │   ├── ReportsModal.tsx
+│   │   │   ├── SecurityTimeline.tsx     # Temporal Security Twin
+│   │   │   ├── ExposureClock.tsx
+│   │   │   ├── RiskForecastView.tsx
+│   │   │   ├── RemediationPlanner.tsx
+│   │   │   └── IncidentReplay.tsx
 │   │   ├── services/
 │   │   │   └── api.ts               # Backend REST API client
 │   │   ├── types/
@@ -196,8 +232,8 @@ pip install -r requirements.txt
 # Generate sample controlled PCAPs:
 python -m app.utils.synthetic_generator
 
-# Run test suite:
-pytest -v tests/test_sentinel.py
+# Run test suite (core engine + Temporal Security Twin):
+pytest -v
 
 # Launch FastAPI backend:
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
@@ -234,6 +270,9 @@ The platform includes 5 pre-packaged laboratory PCAPs generated via Scapy with a
 | **Configuration Drift** | `config_drift_vpn.pcap` | Silent downgrade: AES-128-CBC, DH-14, PFS Disabled against golden baseline | **82/100 (Grade B, 2 Regressions)** |
 | **Anomalous Negotiation Storm** | `anomalous_vpn.pcap` | 20+ rapid IKE renegotiations, in-flight duplicate ESP sequence numbers | **80/100 (Grade B, 2 Anomalies)** |
 | **Legacy DES VPN** | `legacy_vpn.pcap` | Broken 56-bit Single DES, 768-bit DH Group 1, deprecated IKEv1 protocol | **15/100 (Grade F)** |
+| **Security Evolution: Silent Escalation** | *(all 5 pcaps above, replayed as one time series)* | **CONTROLLED LABORATORY SIMULATION.** A deterministic 5-stage sequence — Strong → Config Drift → Weak Crypto → Anomalous → Legacy — backdated 1 hour apart and grouped under one synthetic tunnel identity, so the Security Evolution tab has a full history to analyze. | **100 → 82 → 17 → 80 → 15** |
+
+> The temporal demo reuses the exact same pre-generated pcaps and the exact same analysis pipeline as the 5 single-snapshot demos above — it does not fabricate packet data. It only assigns the 5 existing analyses a shared tunnel identity and evenly-spaced backdated timestamps so a history exists to replay. Reloading it is idempotent: it always resets to this same 5-stage story, so judges can reproduce it exactly.
 
 ---
 
@@ -256,6 +295,29 @@ Follow this exact walkthrough during evaluations:
 8. **Inspect Encrypted Traffic & Privacy**: Click the *Traffic & Privacy* tab. Review the model's traffic classification, the probability distribution, and the **Metadata Exposure Score** with TFC padding recommendations.
 9. **Try Another Lab Scenario**: Click **Demo Lab** in the top navigation bar and select **Weak Crypto VPN**. Watch the score plummet to **17/100 (Grade F)** and observe the Sweet32 and Logjam vulnerability alerts.
 10. **Export Security Reports**: Click **Reports** in the top bar. Toggle between the **Executive Summary** (for CISOs) and **Technical Audit** (for engineers). Click **Download PDF** to generate an audit-ready PDF document.
+11. **Load the Temporal Demo**: Click **Demo Lab** again and select **Security Evolution: Silent Escalation** (tagged `CONTROLLED LABORATORY SIMULATION`).
+12. **Open the Security Evolution Tab** (Step 7 in the tab bar):
+    - **Security Timeline** — five snapshots (`T0`–`T4`) showing the score falling from 100 to 15, plus a **Security Degradation Sequence** grouping the correlated downgrade events.
+    - **Exposure Clock** — shows the tunnel has been `DEGRADED` for **03h 00m**, with the explicit disclaimer that duration alone doesn't prove compromise.
+    - **Explainable Risk Forecast** — trend `ESCALATING` at ~86% confidence, listing the exact drivers (repeated cryptographic downgrade, DH regression, IKE downgrade) and the temporal attack/risk path.
+    - **Automated Remediation Planner** — three ranked plans; **Plan C (Full Baseline Hardening)** projects the score back to **100/100**, reusing the same What-If simulator as Step 4.
+    - **Incident Replay** — click **▶ Replay Security Evolution** to step through `T0 → T4` and watch the score, exposure state, and forecast update frame by frame.
+
+---
+
+## 🔌 API Reference — Temporal Security Twin
+
+All endpoints below are scoped by an existing `analysis_id`; the backend resolves it to that analysis's `tunnel_id` internally.
+
+| Method | Endpoint | Returns |
+| :--- | :--- | :--- |
+| `GET` | `/api/analysis/{id}/timeline` | Full snapshot history + correlated security events for the tunnel |
+| `GET` | `/api/analysis/{id}/exposure` | Security Exposure Clock (degraded state duration, affected SAs, transitions) |
+| `GET` | `/api/analysis/{id}/forecast` | Explainable risk trend (`ESCALATING`/`IMPROVING`/`STABLE`), drivers, confidence |
+| `GET` | `/api/analysis/{id}/temporal-graph` | Time-ordered attack/risk path chain (extends the static risk graph schema) |
+| `GET` | `/api/analysis/{id}/remediation-plans` | Three ranked hardening plans, each scored via the existing What-If simulator |
+| `POST` | `/api/analysis/{id}/remediation/simulate?plan_id=...` | Applies a named plan (or a custom `WhatIfRequest` body) and logs the simulation |
+| `POST` | `/api/analysis/{id}/replay` | Frame-by-frame incident replay across the tunnel's full history |
 
 ---
 
@@ -267,6 +329,12 @@ IPsec Sentinel is strictly a **defensive network protocol intelligence and harde
 - Offensive payload delivery or exploitation
 
 All analyses are conducted on authorized network packet traces and controlled laboratory datasets.
+
+### Limitations of the Temporal Security Twin
+- **Correlation is not proof of causation.** Correlated event sequences are explicitly labeled as requiring investigation, never as confirmation that an attack occurred.
+- **Forecasts are trajectories, not predictions.** The risk forecaster projects an exposure trend from observed telemetry; it does not claim to predict a real-world attack with certainty.
+- **Exposure duration is a configuration-state metric.** A long "degraded" duration means the tunnel's configuration has stayed below baseline — it does not by itself indicate a breach occurred.
+- **Tunnel identity is peer-IP based.** Two analyses are treated as "the same tunnel" only when their observed initiator/responder IPs match; if peer IPs were never observed, snapshots fall back to a shared `unassigned-tunnel` bucket rather than fabricating an identity.
 
 ---
 

@@ -1,5 +1,5 @@
 import React from "react";
-import { Zap, X, ShieldAlert, ShieldCheck, GitCompare, AlertTriangle, Cpu } from "lucide-react";
+import { Zap, X, ShieldAlert, ShieldCheck, GitCompare, AlertTriangle, Cpu, History } from "lucide-react";
 import { DemoSample } from "../types";
 
 interface DemoSelectorProps {
@@ -31,6 +31,8 @@ export const DemoSelector: React.FC<DemoSelectorProps> = ({
         return <AlertTriangle className="w-5 h-5 text-orange-400" />;
       case "legacy-vpn":
         return <Cpu className="w-5 h-5 text-red-500" />;
+      case "temporal-evolution":
+        return <History className="w-5 h-5 text-violet-400" />;
       default:
         return <Zap className="w-5 h-5 text-cyan-400" />;
     }
@@ -45,6 +47,8 @@ export const DemoSelector: React.FC<DemoSelectorProps> = ({
       case "weak-crypto":
       case "legacy-vpn":
         return "bg-rose-500/10 text-rose-300 border-rose-500/30";
+      case "temporal-evolution":
+        return "bg-violet-500/10 text-violet-300 border-violet-500/30";
       default:
         return "bg-cyan-500/10 text-cyan-300 border-cyan-500/30";
     }
