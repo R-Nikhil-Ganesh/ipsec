@@ -11,6 +11,7 @@ import {
   Upload,
   AlertCircle,
   EyeOff,
+  Info,
 } from "lucide-react";
 import { AnalysisDetailResponse, DemoSample } from "./types";
 import {
@@ -34,6 +35,67 @@ import { DriftView } from "./components/DriftView";
 import { TrafficAnalyticsCharts } from "./components/TrafficAnalyticsCharts";
 import { ReportsModal } from "./components/ReportsModal";
 
+type TabId = "overview" | "findings" | "graph" | "whatif" | "traffic" | "drift";
+
+interface TabConfig {
+  id: TabId;
+  step: number;
+  label: string;
+  icon: React.ElementType;
+  description: string;
+}
+
+const TAB_CONFIG: TabConfig[] = [
+  {
+    id: "overview",
+    step: 1,
+    label: "Digital Twin & Overview",
+    icon: Layers,
+    description:
+      "A plain-English model of the captured tunnel — protocol, mode, ciphers and key exchange — rebuilt from raw packets so you can see exactly what the VPN is configured to do.",
+  },
+  {
+    id: "findings",
+    step: 2,
+    label: "Security Findings",
+    icon: Shield,
+    description:
+      "Every issue the engine flagged, ranked by severity, with the RFC or best-practice reasoning behind each one — the 'what's wrong and why it matters' view.",
+  },
+  {
+    id: "graph",
+    step: 3,
+    label: "Attack & Risk Path Graph",
+    icon: GitBranch,
+    description:
+      "Turns the findings into a connected attack path, showing how a weakness could realistically be chained by an attacker to compromise the tunnel.",
+  },
+  {
+    id: "whatif",
+    step: 4,
+    label: "What-If Simulator",
+    icon: Sliders,
+    description:
+      "An interactive sandbox to toggle hardening changes (stronger ciphers, PFS, etc.) and instantly see the projected impact on the security score.",
+  },
+  {
+    id: "traffic",
+    step: 5,
+    label: "Traffic & Privacy",
+    icon: Activity,
+    description:
+      "Classifies encrypted traffic patterns and estimates what metadata (timing, size, endpoints) could leak about user activity even without decrypting payloads.",
+  },
+  {
+    id: "drift",
+    step: 6,
+    label: "Config Drift",
+    icon: GitCompare,
+    description:
+      "Compares the current configuration against an established baseline to catch silent regressions — settings that changed without anyone noticing.",
+  },
+];
+
 export const App: React.FC = () => {
   const [analysis, setAnalysis] = useState<AnalysisDetailResponse | null>(null);
   const [demoSamples, setDemoSamples] = useState<DemoSample[]>([]);
@@ -46,9 +108,8 @@ export const App: React.FC = () => {
   const [isReportsOpen, setIsReportsOpen] = useState<boolean>(false);
 
   // Tabs
-  const [activeTab, setActiveTab] = useState<
-    "overview" | "findings" | "graph" | "whatif" | "traffic" | "drift"
-  >("overview");
+  const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const activeTabConfig = TAB_CONFIG.find((t) => t.id === activeTab)!;
 
   // Load initial demo samples and default to Configuration Drift Demo
   useEffect(() => {
@@ -139,81 +200,55 @@ export const App: React.FC = () => {
               onOpenDrift={() => setActiveTab("drift")}
             />
 
-            {/* Navigation Tabs */}
-            <div className="flex items-center space-x-2 border-b border-slate-800 pb-2 overflow-x-auto">
-              <button
-                onClick={() => setActiveTab("overview")}
-                className={`flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
-                  activeTab === "overview"
-                    ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/40"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
-                }`}
-              >
-                <Layers className="w-4 h-4" />
-                <span>Digital Twin & Overview</span>
-              </button>
+            {/* Navigation Tabs — numbered to read as a guided walkthrough */}
+            <div className="space-y-3">
+              <div className="flex items-center space-x-2 border-b border-slate-800 pb-2 overflow-x-auto">
+                {TAB_CONFIG.map((tab) => {
+                  const Icon = tab.icon;
+                  const isActive = activeTab === tab.id;
+                  const badge =
+                    tab.id === "findings"
+                      ? ` (${analysis.findings.length})`
+                      : tab.id === "drift" && analysis.drift.has_drift
+                      ? " ⚠️"
+                      : "";
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`flex items-center space-x-2 px-3.5 py-2 text-xs font-bold rounded-lg transition-all whitespace-nowrap ${
+                        isActive
+                          ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/40"
+                          : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent"
+                      }`}
+                    >
+                      <span
+                        className={`flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-extrabold ${
+                          isActive ? "bg-cyan-400 text-slate-950" : "bg-slate-800 text-slate-400"
+                        }`}
+                      >
+                        {tab.step}
+                      </span>
+                      <Icon className="w-4 h-4" />
+                      <span>
+                        {tab.label}
+                        {badge}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
 
-              <button
-                onClick={() => setActiveTab("findings")}
-                className={`flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
-                  activeTab === "findings"
-                    ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/40"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
-                }`}
-              >
-                <Shield className="w-4 h-4" />
-                <span>Security Findings ({analysis.findings.length})</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab("graph")}
-                className={`flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
-                  activeTab === "graph"
-                    ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/40"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
-                }`}
-              >
-                <GitBranch className="w-4 h-4" />
-                <span>Attack & Risk Path Graph</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab("whatif")}
-                className={`flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
-                  activeTab === "whatif"
-                    ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/40"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
-                }`}
-              >
-                <Sliders className="w-4 h-4" />
-                <span>What-If Simulator</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab("traffic")}
-                className={`flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
-                  activeTab === "traffic"
-                    ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/40"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
-                }`}
-              >
-                <Activity className="w-4 h-4" />
-                <span>Traffic & Privacy</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab("drift")}
-                className={`flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
-                  activeTab === "drift"
-                    ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/40"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
-                }`}
-              >
-                <GitCompare className="w-4 h-4" />
-                <span>
-                  Config Drift {analysis.drift.has_drift && "⚠️"}
-                </span>
-              </button>
+              {/* Explainer banner — what this step shows and why it matters */}
+              <div className="flex items-start space-x-2.5 px-4 py-2.5 bg-slate-900/60 border border-slate-800 rounded-lg text-xs text-slate-400">
+                <Info className="w-4 h-4 text-cyan-500 shrink-0 mt-0.5" />
+                <p>
+                  <span className="font-bold text-slate-200">
+                    Step {activeTabConfig.step} — {activeTabConfig.label}:
+                  </span>{" "}
+                  {activeTabConfig.description}
+                </p>
+              </div>
             </div>
 
             {/* TAB 1: Digital Twin & Overview */}
