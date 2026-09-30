@@ -520,9 +520,9 @@ DEMO_SAMPLES = [
     {
         "id": "temporal-evolution",
         "name": "Security Evolution: Silent Escalation",
-        "pcap": "(deterministic 5-stage synthetic sequence)",
+        "pcap": "(deterministic 7-stage synthetic sequence)",
         "tag": "CONTROLLED LABORATORY SIMULATION",
-        "description": "A hardened tunnel silently regresses over time: cipher downgrade, key-exchange regression, PFS loss, and a renegotiation storm. Open the Security Evolution tab afterward to see the timeline, exposure clock, forecast, and remediation plans."
+        "description": "A hardened tunnel (100/100, Grade A+) holds steady for six observed snapshots, then silently drifts into a cipher + key-exchange downgrade (82/100, Grade B). Open the Security Evolution tab afterward to see the timeline, exposure clock, forecast, and remediation plans."
     }
 ]
 
@@ -530,14 +530,18 @@ DEMO_SAMPLES = [
 # rather than duplicate, its snapshot history.
 TEMPORAL_DEMO_TUNNEL_ID = "tun-demo-temporal-evolution"
 
-# (pcap file, hour offset from "now") — reuses the same 5 pre-generated lab pcaps
-# already used by the single-snapshot demos above, just replayed as one time series.
+# (pcap file, hour offset from "now") — reuses two of the pre-generated lab pcaps already
+# used by the single-snapshot demos above, replayed as one simple time series: a hardened
+# tunnel that holds a flat 100/100 for six snapshots (T0-T5), then drifts to 82/100 at T6 —
+# a clean plateau-then-drop shape that's easy to read in a demo.
 TEMPORAL_DEMO_STAGES = [
+    ("strong_vpn.pcap", -6),
+    ("strong_vpn.pcap", -5),
     ("strong_vpn.pcap", -4),
-    ("config_drift_vpn.pcap", -3),
-    ("weak_crypto_vpn.pcap", -2),
-    ("anomalous_vpn.pcap", -1),
-    ("legacy_vpn.pcap", 0),
+    ("strong_vpn.pcap", -3),
+    ("strong_vpn.pcap", -2),
+    ("strong_vpn.pcap", -1),
+    ("config_drift_vpn.pcap", 0),
 ]
 
 
@@ -583,5 +587,18 @@ def load_demo_sample(sample_id: str):
     if not os.path.exists(pcap_path):
         raise HTTPException(status_code=500, detail=f"PCAP file {target['pcap']} missing from lab directory.")
 
-    res = _run_full_analysis(pcap_path, target["pcap"], dataset_type="Controlled laboratory dataset")
+    # Each demo pcap is deterministically generated with fixed peer IPs, so it always
+    # derives the same tunnel_id. Without a reset, reloading a demo (e.g. the app's own
+    # default-load-on-mount, or a judge clicking it twice) would silently keep appending
+    # snapshots to that tunnel's history forever. Demos are meant to be a single fresh
+    # snapshot each time, unlike a real re-analyzed tunnel, so we reset first.
+    demo_tunnel_id = f"tun-demo-{sample_id}"
+    delete_tunnel_history(demo_tunnel_id)
+
+    res = _run_full_analysis(
+        pcap_path,
+        target["pcap"],
+        dataset_type="Controlled laboratory dataset",
+        tunnel_id_override=demo_tunnel_id,
+    )
     return res

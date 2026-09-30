@@ -7,6 +7,7 @@ export interface PeerInfo {
   spi_initiator?: string;
   spi_responder?: string;
   esp_spis: string[];
+  addresses_observed?: boolean;
 }
 
 export interface VPNFingerprint {

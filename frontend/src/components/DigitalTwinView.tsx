@@ -1,18 +1,19 @@
 import React from "react";
-import { Cpu, Server, Network, ShieldCheck, Eye, HelpCircle } from "lucide-react";
-import { VPNFingerprint, PacketStatistics } from "../types";
+import { Cpu, Network, Eye, HelpCircle } from "lucide-react";
+import { VPNFingerprint, PacketStatistics, RiskScoreBreakdown } from "../types";
+import { NetworkTopologyView } from "./NetworkTopologyView";
 
 interface DigitalTwinViewProps {
   fingerprint: VPNFingerprint;
   stats: PacketStatistics;
+  riskScore?: RiskScoreBreakdown;
 }
 
 export const DigitalTwinView: React.FC<DigitalTwinViewProps> = ({
   fingerprint,
   stats,
+  riskScore,
 }) => {
-  const p = fingerprint.peer_info;
-
   const renderStatusBadge = (status: string) => {
     switch (status) {
       case "OBSERVED":
@@ -75,64 +76,8 @@ export const DigitalTwinView: React.FC<DigitalTwinViewProps> = ({
         </div>
       </div>
 
-      {/* Network Topology Gateway Endpoints */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
-        {/* Peer Initiator */}
-        <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-            <span className="font-semibold flex items-center space-x-1">
-              <Server className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Initiator Gateway (Peer A)</span>
-            </span>
-            <span className="font-mono text-[10px] text-slate-500">{p?.ip_version || "IPv4"}</span>
-          </div>
-          <div className="font-mono font-bold text-sm text-white">
-            {p?.initiator_ip || "192.168.1.100"}
-            <span className="text-slate-500 text-xs font-normal">:{p?.initiator_port || 500}</span>
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1 font-mono truncate">
-            SPI: {fingerprint.evidence?.ike_evidence?.transforms_dh?.[0]?.spi || p?.spi_initiator || "0x0000000000000000"}
-          </div>
-        </div>
-
-        {/* Encrypted Tunnel Path */}
-        <div className="text-center px-2 py-1 flex flex-col items-center">
-          <div className="text-[11px] font-mono text-cyan-400 uppercase tracking-widest font-semibold flex items-center space-x-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-            <span>{fingerprint.mode || "Tunnel"} Mode ({fingerprint.encryption || "Encrypted"})</span>
-          </div>
-          <div className="w-full my-2 flex items-center">
-            <div className="h-0.5 bg-gradient-to-r from-cyan-500/20 via-cyan-400 to-cyan-500/20 flex-1"></div>
-            <div className="p-1 bg-slate-800 rounded-full border border-cyan-500/50 text-cyan-400 mx-2">
-              <ShieldCheck className="w-4 h-4" />
-            </div>
-            <div className="h-0.5 bg-gradient-to-r from-cyan-500/20 via-cyan-400 to-cyan-500/20 flex-1"></div>
-          </div>
-          <div className="text-[10px] text-slate-400 flex items-center space-x-2">
-            <span>NAT-T: <strong>{fingerprint.nat_traversal ? "UDP 4500 Encap" : "Direct IP 50"}</strong></span>
-            <span>•</span>
-            <span>Replay: <strong>{fingerprint.replay_protection ? "64-pkt Window" : "None"}</strong></span>
-          </div>
-        </div>
-
-        {/* Peer Responder */}
-        <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-            <span className="font-semibold flex items-center space-x-1">
-              <Server className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Responder Gateway (Peer B)</span>
-            </span>
-            <span className="font-mono text-[10px] text-slate-500">{p?.ip_version || "IPv4"}</span>
-          </div>
-          <div className="font-mono font-bold text-sm text-white">
-            {p?.responder_ip || "203.0.113.1"}
-            <span className="text-slate-500 text-xs font-normal">:{p?.responder_port || 500}</span>
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1 font-mono truncate">
-            SPI: {p?.spi_responder || "0x0000000000000000"}
-          </div>
-        </div>
-      </div>
+      {/* Connected devices / network topology */}
+      <NetworkTopologyView fingerprint={fingerprint} stats={stats} riskScore={riskScore} />
 
       {/* Normalized Security Parameters Matrix Table */}
       <div>

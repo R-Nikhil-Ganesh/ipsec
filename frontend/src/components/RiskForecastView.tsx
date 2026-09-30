@@ -78,25 +78,27 @@ export const RiskForecastView: React.FC<RiskForecastViewProps> = ({ analysisId }
       {scores.length > 0 && (
         <div className="space-y-1.5">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Risk Trajectory</h3>
-          <div className="flex items-end space-x-2 h-24 px-1">
-            {timeline!.snapshots.map((s) => (
-              <div key={s.analysis_id} className="flex-1 flex flex-col items-center justify-end h-full">
-                <span className="text-[10px] font-mono text-slate-400 mb-1">{s.overall_score}</span>
-                <div
-                  className={`w-full rounded-t ${
-                    s.overall_score >= 90
-                      ? "bg-emerald-500"
-                      : s.overall_score >= 70
-                      ? "bg-cyan-500"
-                      : s.overall_score >= 50
-                      ? "bg-amber-500"
-                      : "bg-rose-500"
-                  }`}
-                  style={{ height: `${Math.max(4, (s.overall_score / maxScore) * 100)}%` }}
-                />
-                <span className="text-[10px] font-mono text-slate-500 mt-1">{s.label}</span>
-              </div>
-            ))}
+          <div className="p-3 bg-slate-950/60 rounded-lg border border-slate-800 overflow-x-auto">
+            <div className="flex items-end space-x-2 h-24 min-w-max">
+              {timeline!.snapshots.map((s) => (
+                <div key={s.analysis_id} className="w-9 shrink-0 flex flex-col items-center justify-end h-full">
+                  <span className="text-[10px] font-mono text-slate-400 mb-1">{s.overall_score}</span>
+                  <div
+                    className={`w-full rounded-t ${
+                      s.overall_score >= 90
+                        ? "bg-emerald-500"
+                        : s.overall_score >= 70
+                        ? "bg-cyan-500"
+                        : s.overall_score >= 50
+                        ? "bg-amber-500"
+                        : "bg-rose-500"
+                    }`}
+                    style={{ height: `${Math.max(4, (s.overall_score / maxScore) * 100)}%` }}
+                  />
+                  <span className="text-[10px] font-mono text-slate-500 mt-1">{s.label}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

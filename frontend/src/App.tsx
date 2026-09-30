@@ -271,6 +271,7 @@ export const App: React.FC = () => {
                 <DigitalTwinView
                   fingerprint={analysis.fingerprint}
                   stats={analysis.packet_stats}
+                  riskScore={analysis.risk_score}
                 />
                 <TrafficAnalyticsCharts stats={analysis.packet_stats} />
                 <ScoreBreakdownCard riskScore={analysis.risk_score} />

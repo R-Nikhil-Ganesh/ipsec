@@ -14,6 +14,9 @@ class PeerInfo(BaseModel):
     spi_initiator: Optional[str] = None
     spi_responder: Optional[str] = None
     esp_spis: List[str] = Field(default_factory=list)
+    # False when no IKE packet was seen, so the IPs/ports above are placeholder defaults
+    # rather than values decoded from the capture.
+    addresses_observed: bool = True
 
 
 class VPNFingerprint(BaseModel):

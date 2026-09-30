@@ -253,7 +253,10 @@ def test_temporal_demo_scenario_end_to_end():
     timeline_resp = client.get(f"/api/analysis/{analysis_id}/timeline")
     assert timeline_resp.status_code == 200
     timeline = timeline_resp.json()
-    assert len(timeline["snapshots"]) == 5
+    assert len(timeline["snapshots"]) == 7
+    # Flat plateau at 100 for T0-T5, then a single drop to a lower score at T6.
+    assert all(s["overall_score"] == 100 for s in timeline["snapshots"][:6])
+    assert timeline["snapshots"][6]["overall_score"] < 100
     assert timeline["is_simulated"] is True
     assert timeline["simulation_label"] == "CONTROLLED LABORATORY SIMULATION"
 
@@ -286,10 +289,41 @@ def test_temporal_demo_scenario_end_to_end():
     replay_resp = client.post(f"/api/analysis/{analysis_id}/replay")
     assert replay_resp.status_code == 200
     frames = replay_resp.json()["frames"]
-    assert len(frames) == 5
-    assert [f["label"] for f in frames] == ["T0", "T1", "T2", "T3", "T4"]
+    assert len(frames) == 7
+    assert [f["label"] for f in frames] == ["T0", "T1", "T2", "T3", "T4", "T5", "T6"]
 
 
 def test_timeline_404_for_unknown_analysis():
     resp = client.get("/api/analysis/doesnotexist/timeline")
     assert resp.status_code == 404
+
+
+def test_standalone_demo_reload_does_not_accumulate_history():
+    """Regression test: every demo pcap has fixed peer IPs, so it always derives the same
+    tunnel_id. Reloading a standalone demo (e.g. the app's default-load-on-mount firing
+    repeatedly) must reset that tunnel's history to one fresh snapshot each time, not
+    silently keep appending snapshots to it forever."""
+    first = client.post("/api/demo/load/config-drift").json()
+    second = client.post("/api/demo/load/config-drift").json()
+    third = client.post("/api/demo/load/config-drift").json()
+    assert first["id"] != second["id"] != third["id"]
+
+    timeline = client.get(f"/api/analysis/{third['id']}/timeline").json()
+    assert len(timeline["snapshots"]) == 1
+    assert timeline["snapshots"][0]["analysis_id"] == third["id"]
+
+
+def test_peer_addresses_flagged_as_placeholder_when_unobserved():
+    """Topology UI must never show fallback IPs as observed: the analyzer substitutes
+    defaults when no IKE packet was seen, and must say so via addresses_observed."""
+    import os
+    from app.analyzers.pcap_analyzer import PCAPAnalyzer
+
+    sample = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "sample_pcaps", "strong_vpn.pcap")
+
+    observed = PCAPAnalyzer(sample).analyze()["fingerprint"]
+    assert observed.peer_info.addresses_observed is True
+
+    placeholder = PCAPAnalyzer(sample)._build_fingerprint(None, None, None, None)
+    assert placeholder.peer_info.addresses_observed is False
+    assert placeholder.peer_info.initiator_ip == "192.168.1.100"  # the default the UI must not present as fact

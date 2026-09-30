@@ -48,7 +48,7 @@ flowchart TD
 - Decodes IKEv1 (Main & Aggressive mode), IKEv2 (IKE_SA_INIT, IKE_AUTH, CREATE_CHILD_SA), UDP/500, UDP/4500 (NAT-T Non-ESP marker and UDP-encapsulated ESP), IP protocol 50 (ESP), and Protocol 51 (AH).
 
 ### 2. VPN Security Digital Twin
-- Reconstructs gateway endpoints (Initiator IP:port $\leftrightarrow$ Responder IP:port).
+- Reconstructs gateway endpoints (Initiator IP:port $\leftrightarrow$ Responder IP:port) and draws them as an interactive **connected-devices topology diagram**: both gateways, the IKE control channel and the ESP data tunnel as separate links (tunnel color = current security score, animated traffic), and a NAT device when UDP/4500 encapsulation is seen. Click any device or link to inspect it. Hosts behind the gateways are never invented — tunnel-mode traffic hides them, so they are drawn as dashed *"not observable"* placeholders. If the capture had no IKE packets, the backend's fallback addresses are flagged (`peer_info.addresses_observed = false`) and shown as "not observed" rather than as fact.
 - Maps active Security Associations (SAs), SPI tables, and sequence number progressions.
 - Reconstructs cryptographic suites: Cipher, Block/Stream mode, Integrity transform, Diffie-Hellman group, PFS status, and SA lifetimes.
 
@@ -174,6 +174,7 @@ d:\ipsec/
 │   │   │   ├── FileUpload.tsx
 │   │   │   ├── VPNOverviewCards.tsx
 │   │   │   ├── DigitalTwinView.tsx
+│   │   │   ├── NetworkTopologyView.tsx  # Connected-devices topology diagram
 │   │   │   ├── FindingsList.tsx
 │   │   │   ├── ScoreBreakdownCard.tsx
 │   │   │   ├── RiskGraphView.tsx
@@ -270,9 +271,9 @@ The platform includes 5 pre-packaged laboratory PCAPs generated via Scapy with a
 | **Configuration Drift** | `config_drift_vpn.pcap` | Silent downgrade: AES-128-CBC, DH-14, PFS Disabled against golden baseline | **82/100 (Grade B, 2 Regressions)** |
 | **Anomalous Negotiation Storm** | `anomalous_vpn.pcap` | 20+ rapid IKE renegotiations, in-flight duplicate ESP sequence numbers | **80/100 (Grade B, 2 Anomalies)** |
 | **Legacy DES VPN** | `legacy_vpn.pcap` | Broken 56-bit Single DES, 768-bit DH Group 1, deprecated IKEv1 protocol | **15/100 (Grade F)** |
-| **Security Evolution: Silent Escalation** | *(all 5 pcaps above, replayed as one time series)* | **CONTROLLED LABORATORY SIMULATION.** A deterministic 5-stage sequence — Strong → Config Drift → Weak Crypto → Anomalous → Legacy — backdated 1 hour apart and grouped under one synthetic tunnel identity, so the Security Evolution tab has a full history to analyze. | **100 → 82 → 17 → 80 → 15** |
+| **Security Evolution: Silent Escalation** | *(strong_vpn.pcap ×6 + config_drift_vpn.pcap ×1, replayed as one time series)* | **CONTROLLED LABORATORY SIMULATION.** A hardened tunnel holds a flat 100/100 for six observed snapshots (T0-T5), then silently drifts into a cipher + key-exchange downgrade at T6 — one snapshot per hour, grouped under one synthetic tunnel identity, so the Security Evolution tab has a clean plateau-then-drop history to analyze. | **100 → 100 → 100 → 100 → 100 → 100 → 82** |
 
-> The temporal demo reuses the exact same pre-generated pcaps and the exact same analysis pipeline as the 5 single-snapshot demos above — it does not fabricate packet data. It only assigns the 5 existing analyses a shared tunnel identity and evenly-spaced backdated timestamps so a history exists to replay. Reloading it is idempotent: it always resets to this same 5-stage story, so judges can reproduce it exactly.
+> The temporal demo reuses the exact same pre-generated pcaps and the exact same analysis pipeline as the single-snapshot demos above — it does not fabricate packet data. It only assigns seven existing analyses a shared tunnel identity and backdated timestamps so a history exists to replay. Reloading it is idempotent: it always resets to this same seven-stage story, so judges can reproduce it exactly. The same reset applies to every standalone demo sample too — every demo pcap has fixed peer IPs and therefore always derives the same tunnel identity, so without a reset, reloading a demo (including the app's own default-load-on-mount) would silently keep appending snapshots to that tunnel's history forever. Each demo load now resets its own tunnel history first, so it always yields exactly one fresh snapshot.
 
 ---
 
@@ -297,11 +298,11 @@ Follow this exact walkthrough during evaluations:
 10. **Export Security Reports**: Click **Reports** in the top bar. Toggle between the **Executive Summary** (for CISOs) and **Technical Audit** (for engineers). Click **Download PDF** to generate an audit-ready PDF document.
 11. **Load the Temporal Demo**: Click **Demo Lab** again and select **Security Evolution: Silent Escalation** (tagged `CONTROLLED LABORATORY SIMULATION`).
 12. **Open the Security Evolution Tab** (Step 7 in the tab bar):
-    - **Security Timeline** — five snapshots (`T0`–`T4`) showing the score falling from 100 to 15, plus a **Security Degradation Sequence** grouping the correlated downgrade events.
-    - **Exposure Clock** — shows the tunnel has been `DEGRADED` for **03h 00m**, with the explicit disclaimer that duration alone doesn't prove compromise.
-    - **Explainable Risk Forecast** — trend `ESCALATING` at ~86% confidence, listing the exact drivers (repeated cryptographic downgrade, DH regression, IKE downgrade) and the temporal attack/risk path.
-    - **Automated Remediation Planner** — three ranked plans; **Plan C (Full Baseline Hardening)** projects the score back to **100/100**, reusing the same What-If simulator as Step 4.
-    - **Incident Replay** — click **▶ Replay Security Evolution** to step through `T0 → T4` and watch the score, exposure state, and forecast update frame by frame.
+    - **Security Timeline** — seven snapshots (`T0`-`T6`) showing a flat **100 (Grade A+)** plateau, then a single drop to **82 (Grade B)** at `T6`, plus the correlated downgrade events (cipher + DH regression) behind it.
+    - **Exposure Clock** — shows the tunnel has just entered a `DEGRADED` state, with the explicit disclaimer that duration alone doesn't prove compromise.
+    - **Explainable Risk Forecast** — trend `ESCALATING`, listing the exact drivers (cryptographic downgrade, DH regression, baseline violation) and the temporal attack/risk path.
+    - **Automated Remediation Planner** — three ranked plans; even **Plan A (Restore Cipher)** alone already projects the score back to **100/100** for this scenario, reusing the same What-If simulator as Step 4.
+    - **Incident Replay** — click **▶ Replay Security Evolution** to step from `T0 → T6` and watch the score, exposure state, and forecast update frame by frame.
 
 ---
 

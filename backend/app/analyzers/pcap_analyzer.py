@@ -192,7 +192,8 @@ class PCAPAnalyzer:
             ip_version=ip_ver,
             spi_initiator=ike_sum.get("initiator_spi"),
             spi_responder=ike_sum.get("responder_spi"),
-            esp_spis=list(self.esp_parser.observed_spis.keys())
+            esp_spis=list(self.esp_parser.observed_spis.keys()),
+            addresses_observed=bool(init_ip and resp_ip),
         )
 
         # Calculate composite confidence
