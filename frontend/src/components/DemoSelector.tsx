@@ -65,7 +65,7 @@ export const DemoSelector: React.FC<DemoSelectorProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-white">
-                Demo Lab — Controlled Laboratory Datasets
+                Current Configurations — Controlled Laboratory Datasets
               </h2>
               <p className="text-xs text-slate-400">
                 Select a verified laboratory IPsec PCAP to test end-to-end detection, drift, or attack graphs.

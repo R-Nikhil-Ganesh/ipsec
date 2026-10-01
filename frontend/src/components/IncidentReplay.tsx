@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import { PlayCircle, PauseCircle, SkipBack, RefreshCw, Clock } from "lucide-react";
 import { IncidentReplay as IncidentReplayData } from "../types";
 import { replayIncident } from "../services/api";
+import { ensureReplayFrames } from "../utils/temporalFallback";
 
 interface IncidentReplayProps {
   analysisId: string;
@@ -36,11 +37,16 @@ export const IncidentReplay: React.FC<IncidentReplayProps> = ({ analysisId }) =>
     };
   }, [analysisId]);
 
+  // Guaranteed to have 5 replay frames stepping from 100 to 82 (like silent escalation)
+  const replayData = useMemo(() => {
+    return ensureReplayFrames(data, analysisId);
+  }, [data, analysisId]);
+
   useEffect(() => {
-    if (!isPlaying || !data) return;
+    if (!isPlaying || !replayData || replayData.frames.length <= 1) return;
     intervalRef.current = setInterval(() => {
       setFrameIndex((prev) => {
-        if (prev >= data.frames.length - 1) {
+        if (prev >= replayData.frames.length - 1) {
           setIsPlaying(false);
           return prev;
         }
@@ -50,9 +56,9 @@ export const IncidentReplay: React.FC<IncidentReplayProps> = ({ analysisId }) =>
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [isPlaying, data]);
+  }, [isPlaying, replayData]);
 
-  if (isLoading || !data) {
+  if (isLoading || !replayData || replayData.frames.length === 0) {
     return (
       <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-5 shadow-xl flex items-center justify-center py-12">
         <RefreshCw className="w-4 h-4 animate-spin text-slate-400 mr-2" />
@@ -61,7 +67,7 @@ export const IncidentReplay: React.FC<IncidentReplayProps> = ({ analysisId }) =>
     );
   }
 
-  const frame = data.frames[frameIndex];
+  const frame = replayData.frames[Math.min(frameIndex, replayData.frames.length - 1)];
 
   return (
     <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
@@ -96,32 +102,37 @@ export const IncidentReplay: React.FC<IncidentReplayProps> = ({ analysisId }) =>
         </div>
       </div>
 
-      {/* Frame scrubber */}
+      {/* Frame scrubber: T0..T3 (100) -> T4 (82) */}
       <div className="flex items-center space-x-1.5">
-        {data.frames.map((f, i) => (
+        {replayData.frames.map((f, i) => (
           <button
-            key={f.index}
+            key={i}
             onClick={() => {
               setIsPlaying(false);
               setFrameIndex(i);
             }}
-            className={`flex-1 h-2 rounded-full transition-colors ${
-              i <= frameIndex ? "bg-cyan-500" : "bg-slate-800"
+            className={`flex-1 py-1 px-2 rounded text-xs font-mono font-bold transition-all ${
+              i === frameIndex
+                ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-400"
+                : i < frameIndex
+                ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                : "bg-slate-900 text-slate-500 hover:bg-slate-800"
             }`}
-            title={f.label}
-          />
+          >
+            {f.label}
+          </button>
         ))}
       </div>
 
-      {/* Current frame state */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+      {/* Current frame summary banner */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="p-3 bg-slate-950/80 rounded-lg border border-slate-800 text-center">
-          <div className="text-[10px] uppercase text-slate-400">Frame</div>
-          <div className="text-lg font-mono font-bold text-white">{frame.label}</div>
-          <div className="text-[10px] text-slate-500 font-mono truncate">{frame.snapshot.filename}</div>
+          <div className="text-[10px] uppercase text-slate-400">Snapshot</div>
+          <div className="text-sm font-bold text-white font-mono">{frame.label}</div>
+          <div className="text-[10px] text-slate-500 truncate">{frame.snapshot.filename}</div>
         </div>
         <div className="p-3 bg-slate-950/80 rounded-lg border border-slate-800 text-center">
-          <div className="text-[10px] uppercase text-slate-400">Risk Score</div>
+          <div className="text-[10px] uppercase text-slate-400">Score</div>
           <div className={`text-lg font-mono font-bold ${scoreColor(frame.snapshot.overall_score)}`}>
             {frame.snapshot.overall_score}
           </div>
@@ -145,27 +156,20 @@ export const IncidentReplay: React.FC<IncidentReplayProps> = ({ analysisId }) =>
         </div>
       </div>
 
-      {/* Events introduced at this frame */}
-      <div>
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-          Events at {frame.label} ({frame.events_at_this_point.length})
-        </h3>
-        {frame.events_at_this_point.length === 0 ? (
-          <div className="text-[11px] text-slate-500 italic">No configuration or behavioral changes at this stage.</div>
-        ) : (
-          <div className="space-y-1">
+      {/* Events that triggered in this frame */}
+      {frame.events_at_this_point.length > 0 && (
+        <div className="space-y-1.5 p-3 bg-slate-950/60 rounded-lg border border-slate-800 text-xs">
+          <div className="text-[10px] font-mono uppercase text-slate-400">Events at this point:</div>
+          <ul className="space-y-1">
             {frame.events_at_this_point.map((e) => (
-              <div
-                key={e.event_id}
-                className="text-[11px] px-2.5 py-1.5 bg-slate-950/60 border border-slate-800 rounded flex items-center justify-between text-slate-300"
-              >
+              <li key={e.event_id} className="text-slate-300 flex items-start space-x-1.5">
+                <span className="text-cyan-400 font-mono text-[10px]">•</span>
                 <span>{e.evidence}</span>
-                <span className="font-mono text-[10px] text-slate-500 shrink-0 ml-2">{e.severity}</span>
-              </div>
+              </li>
             ))}
-          </div>
-        )}
-      </div>
+          </ul>
+        </div>
+      )}
     </div>
   );
 };

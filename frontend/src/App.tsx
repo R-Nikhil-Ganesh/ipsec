@@ -136,7 +136,7 @@ export const App: React.FC = () => {
         setAnalysis(defaultData);
       } catch (err: any) {
         console.error("Initialization failed", err);
-        setErrorMsg("Could not connect to IPsec Sentinel backend. Ensure server is running on :8000.");
+        setErrorMsg("Could not connect to netHawk backend. Ensure server is running on :8000.");
       } finally {
         setIsLoading(false);
       }
@@ -334,7 +334,7 @@ export const App: React.FC = () => {
         ) : (
           <div className="py-20 text-center space-y-4">
             <Shield className="w-12 h-12 text-cyan-500 mx-auto animate-pulse" />
-            <h2 className="text-xl font-bold text-white">Loading IPsec Sentinel Engine...</h2>
+            <h2 className="text-xl font-bold text-white">Loading netHawk Engine...</h2>
             <p className="text-sm text-slate-400">Initializing Scapy packet parsers and baseline definitions.</p>
           </div>
         )}
@@ -343,7 +343,7 @@ export const App: React.FC = () => {
       {/* Footer */}
       <footer className="mt-auto border-t border-slate-800 bg-slate-950/80 py-4 px-6 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-2">
-          <span>IPsec Sentinel — AI-Powered Defensive VPN Security Intelligence Platform</span>
+          <span>netHawk — AI-Powered Defensive VPN Security Intelligence Platform</span>
           <span className="font-mono text-slate-400">
             Smart India Hackathon Prototype • RFC 7296 / RFC 4301 Standard
           </span>

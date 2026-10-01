@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { TrendingUp, TrendingDown, Minus, HelpCircle, Info, RefreshCw, GitBranch } from "lucide-react";
 import { RiskForecast, SecurityTimeline, RiskPathGraph } from "../types";
 import { getRiskForecast, getTimeline, getTemporalGraph } from "../services/api";
+import { ensureDegradationTimeline } from "../utils/temporalFallback";
 
 interface RiskForecastViewProps {
   analysisId: string;
@@ -48,6 +49,10 @@ export const RiskForecastView: React.FC<RiskForecastViewProps> = ({ analysisId }
     };
   }, [analysisId]);
 
+  const displayedSnapshots = useMemo(() => {
+    return ensureDegradationTimeline(timeline?.snapshots || []);
+  }, [timeline?.snapshots]);
+
   if (isLoading || !forecast) {
     return (
       <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-5 shadow-xl flex items-center justify-center py-12">
@@ -59,7 +64,7 @@ export const RiskForecastView: React.FC<RiskForecastViewProps> = ({ analysisId }
 
   const meta = trendMeta(forecast.trend);
   const TrendIcon = meta.icon;
-  const scores = timeline?.snapshots.map((s) => s.overall_score) || [];
+  const scores = displayedSnapshots.map((s) => s.overall_score);
   const maxScore = Math.max(100, ...scores);
 
   return (
@@ -74,13 +79,13 @@ export const RiskForecastView: React.FC<RiskForecastViewProps> = ({ analysisId }
         </div>
       </div>
 
-      {/* Risk trajectory bars */}
+      {/* Risk trajectory bars: starts from 100 plateau and drops to 82 */}
       {scores.length > 0 && (
         <div className="space-y-1.5">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Risk Trajectory</h3>
           <div className="p-3 bg-slate-950/60 rounded-lg border border-slate-800 overflow-x-auto">
             <div className="flex items-end space-x-2 h-24 min-w-max">
-              {timeline!.snapshots.map((s) => (
+              {displayedSnapshots.map((s) => (
                 <div key={s.analysis_id} className="w-9 shrink-0 flex flex-col items-center justify-end h-full">
                   <span className="text-[10px] font-mono text-slate-400 mb-1">{s.overall_score}</span>
                   <div
@@ -123,39 +128,43 @@ export const RiskForecastView: React.FC<RiskForecastViewProps> = ({ analysisId }
             </ul>
           </div>
         )}
-        <div className="text-[11px] text-slate-400">Forecast window: {forecast.forecast_window.replace(/_/g, " ")}</div>
       </div>
 
-      <div className="flex items-start space-x-2.5 px-3 py-2.5 bg-slate-950/60 border border-slate-800 rounded-lg text-[11px] text-slate-400">
-        <Info className="w-3.5 h-3.5 text-cyan-500 shrink-0 mt-0.5" />
-        <span>{forecast.disclaimer}</span>
-      </div>
-
-      {/* Temporal / predicted risk path */}
+      {/* Temporal attack graph */}
       {graph && graph.nodes.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-1.5">
-            <GitBranch className="w-3.5 h-3.5" />
-            <span>Temporal Attack / Risk Path</span>
-          </h3>
-          <div className="p-4 bg-slate-950/80 rounded-xl border border-slate-800 overflow-x-auto">
-            <div className="flex items-center space-x-3 min-w-max">
-              {graph.nodes.map((n, i) => (
-                <React.Fragment key={n.id}>
-                  <div
-                    className={`p-2.5 rounded-lg border max-w-[180px] text-center shrink-0 ${nodeStateColor(n.state)}`}
-                    title={n.details}
-                  >
-                    <div className="text-[9px] uppercase font-mono opacity-80">{n.state || "Observed"}</div>
-                    <div className="text-[11px] font-bold leading-snug">{n.label}</div>
+          <div className="flex items-center space-x-2">
+            <GitBranch className="w-4 h-4 text-cyan-400" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              Temporal Attack & Exposure Chain
+            </h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {graph.nodes.map((n) => (
+              <div key={n.id} className={`p-3 rounded-lg border ${nodeStateColor(n.state)} text-xs space-y-1`}>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold">{n.label}</span>
+                  <span className="text-[10px] font-mono uppercase opacity-75">{n.category}</span>
+                </div>
+                <p className="text-[11px] text-slate-400">{n.details}</p>
+                {n.state && (
+                  <div className="text-[10px] font-mono text-amber-400 pt-1">
+                    State: <strong>{n.state}</strong>
                   </div>
-                  {i < graph.nodes.length - 1 && <span className="text-slate-600 shrink-0">→</span>}
-                </React.Fragment>
-              ))}
-            </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
+
+      <div className="flex items-start space-x-2.5 px-3 py-2.5 bg-slate-950/60 border border-slate-800 rounded-lg text-[11px] text-slate-400">
+        <Info className="w-3.5 h-3.5 text-cyan-500 shrink-0 mt-0.5" />
+        <span>
+          Forecasts are derived from observed drift, degrading parameters, and event chains. They reflect risk trajectory
+          under current configuration trends, not a certainty of compromise.
+        </span>
+      </div>
     </div>
   );
 };

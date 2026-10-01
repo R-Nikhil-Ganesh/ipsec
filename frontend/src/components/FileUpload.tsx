@@ -80,7 +80,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
             <div>
               <h2 className="text-base font-bold text-white">Upload PCAP / Live Capture</h2>
               <p className="text-xs text-slate-400">
-                IPsec Sentinel parses headers, isolates IKE/ESP, and evaluates posture.
+                netHawk parses headers, isolates IKE/ESP, and evaluates posture.
               </p>
             </div>
           </div>

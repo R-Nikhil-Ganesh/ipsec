@@ -530,10 +530,10 @@ DEMO_SAMPLES = [
 # rather than duplicate, its snapshot history.
 TEMPORAL_DEMO_TUNNEL_ID = "tun-demo-temporal-evolution"
 
-# (pcap file, hour offset from "now") — reuses two of the pre-generated lab pcaps already
-# used by the single-snapshot demos above, replayed as one simple time series: a hardened
-# tunnel that holds a flat 100/100 for six snapshots (T0-T5), then drifts to 82/100 at T6 —
-# a clean plateau-then-drop shape that's easy to read in a demo.
+# Config-drift runs as a multi-snapshot temporal evolution:
+# starts from 100 (Grade A+) across historical baseline stages, then degrades to 82 (Grade B) at T0.
+CONFIG_DRIFT_TUNNEL_ID = "tun-demo-config-drift"
+
 TEMPORAL_DEMO_STAGES = [
     ("strong_vpn.pcap", -6),
     ("strong_vpn.pcap", -5),
@@ -544,10 +544,16 @@ TEMPORAL_DEMO_STAGES = [
     ("config_drift_vpn.pcap", 0),
 ]
 
+CONFIG_DRIFT_STAGES = [
+    ("strong_vpn.pcap", -4),
+    ("strong_vpn.pcap", -3),
+    ("strong_vpn.pcap", -2),
+    ("strong_vpn.pcap", -1),
+    ("config_drift_vpn.pcap", 0),
+]
+
 
 def _run_temporal_demo_sequence() -> AnalysisDetailResponse:
-    # Idempotent: reloading this demo always yields exactly one fresh 5-stage history,
-    # so the scenario stays reproducible across repeated demo runs.
     delete_tunnel_history(TEMPORAL_DEMO_TUNNEL_ID)
     base_time = datetime.utcnow()
     last_detail: Optional[AnalysisDetailResponse] = None
@@ -566,6 +572,26 @@ def _run_temporal_demo_sequence() -> AnalysisDetailResponse:
     return last_detail
 
 
+def _run_config_drift_sequence() -> AnalysisDetailResponse:
+    """Runs a multi-snapshot sequence: starts at 100 (strong VPN baseline) and degrades to 82 at T0."""
+    delete_tunnel_history(CONFIG_DRIFT_TUNNEL_ID)
+    base_time = datetime.utcnow()
+    last_detail: Optional[AnalysisDetailResponse] = None
+    for pcap_name, hour_offset in CONFIG_DRIFT_STAGES:
+        pcap_path = os.path.join(SAMPLE_DIR, pcap_name)
+        if not os.path.exists(pcap_path):
+            raise HTTPException(status_code=500, detail=f"PCAP file {pcap_name} missing from lab directory.")
+        timestamp = (base_time + timedelta(hours=hour_offset)).isoformat()
+        last_detail = _run_full_analysis(
+            pcap_path,
+            pcap_name,
+            dataset_type="Controlled laboratory dataset",
+            tunnel_id_override=CONFIG_DRIFT_TUNNEL_ID,
+            override_timestamp=timestamp,
+        )
+    return last_detail
+
+
 @router.get("/demo/samples")
 def list_demo_samples():
     return DEMO_SAMPLES
@@ -578,6 +604,9 @@ def load_demo_sample(sample_id: str):
     """
     if sample_id == "temporal-evolution":
         return _run_temporal_demo_sequence()
+
+    if sample_id == "config-drift":
+        return _run_config_drift_sequence()
 
     target = next((s for s in DEMO_SAMPLES if s["id"] == sample_id), None)
     if not target:

@@ -27,7 +27,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div>
             <div className="flex items-center space-x-2">
               <span className="font-bold text-lg text-white tracking-wide">
-                IPsec <span className="text-cyan-400">Sentinel</span>
+                net<span className="text-cyan-400">Hawk</span>
               </span>
               <span className="text-[10px] uppercase font-mono tracking-widest px-2 py-0.5 bg-slate-800 text-slate-300 border border-slate-700 rounded">
                 v1.0 MVP
@@ -61,7 +61,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="flex items-center space-x-1.5 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-300 text-xs font-semibold rounded-lg transition-all"
           >
             <Zap className="w-3.5 h-3.5" />
-            <span>Demo Lab</span>
+            <span>Current Configurations</span>
           </button>
 
           <button
